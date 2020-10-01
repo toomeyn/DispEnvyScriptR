@@ -1,0 +1,208 @@
+---
+title: "Envy"
+output: pdf_document
+---
+
+```{r, message=FALSE}
+library(readxl)
+Spatialdata <- read_excel("BEMAS.xlsx")
+
+library(psych)
+library(car)
+library(QuantPsyc)
+
+
+##Intervention categories
+Spatialdata$COMP <- as.factor(Spatialdata$COMP)
+Spatialdata$OBJ <- as.factor(Spatialdata$OBJ)
+Spatialdata$SOC <- as.factor(Spatialdata$SOC)
+
+Spatialdata$Group <- as.factor(Spatialdata$Group)
+
+Spatialdata <- Spatialdata[Spatialdata$Group != "ObjCompAvg",]
+Spatialdata <- Spatialdata[Spatialdata$Group != "ObjCompTop",]
+Spatialdata <- Spatialdata[Spatialdata$Group != "Control",]
+
+droplevels(Spatialdata$Group)
+#####################
+##General Descriptive Statistics
+######################
+attach(Spatialdata)
+Spatialdata$Major_Cat <- as.factor(Spatialdata$Major_Cat)
+dob <-table(DOB)
+dob
+gender <- table(Gender)
+gender
+group <- table(Group)
+group
+
+describe(ToiletScore)
+boxplot(ToiletScore)
+shapiro.test(ToiletScore)
+
+describe(BrakesScore)
+boxplot(BrakesScore)
+shapiro.test(BrakesScore)
+
+describe(Benign_Sum)
+boxplot(Benign_Sum)
+shapiro.test(Benign_Sum)
+
+describe(Malicious_Sum)
+boxplot(Malicious_Sum)
+shapiro.test(Malicious_Sum)
+
+#Reliability
+Benign.rel<- data.frame(BEMAS_b1, BEMAS_b2, BEMAS_b3, BEMAS_b4, BEMAS_b5)
+alpha(Benign.rel)
+
+Malicious.rel<- data.frame(BEMAS_m1, BEMAS_m2, BEMAS_m3, BEMAS_m4, BEMAS_m5)
+alpha(Malicious.rel)
+detach(Spatialdata)
+
+#Correlation
+cor.all<- data.frame(Spatialdata$ToiletScore, Spatialdata$BrakesScore, Spatialdata$Benign_Sum, Spatialdata$Malicious_Sum)
+  colnames(cor.all) <- (c("Toilet", "Brakes", "Benign", "Malicious"))
+  upper<-round(cor(cor.all, use = "complete.obs", method="pearson"),3)
+  upper[upper.tri(upper)]<-""
+  as.data.frame(upper)
+  
+#By Visualization Group
+tempdata <- Spatialdata[,c("ToiletScore", "BrakesScore", "Benign_Sum", "Malicious_Sum", "Group2")]
+print(describeBy(tempdata, group = tempdata$Group2), digits = 5)
+
+#####################
+##MANOVA
+######################
+#Mahalanobis Distance
+mahal2 = mahalanobis(Spatialdata[, c("Benign_Sum", "Malicious_Sum")], 
+        colMeans(Spatialdata[, c("Benign_Sum", "Malicious_Sum")], na.rm = T), 
+        cov(Spatialdata[, c("Benign_Sum", "Malicious_Sum")], 
+            use = "pairwise.complete.obs"))
+Temp <- qchisq(1-.001, ncol(Spatialdata[, c("Benign_Sum", "Malicious_Sum")]))
+print(Temp)
+summary(mahal2 < qchisq(1-.001, ncol(Spatialdata[, c("Benign_Sum", "Malicious_Sum")])))
+
+print(describe(mahal2), digits = 5)
+
+#Mahalanobis visual
+library(chemometrics)
+x=Spatialdata[, c("Benign_Sum", "Malicious_Sum")]
+require(robustbase)
+Moutlier(x, quantile = 0.975, plot = TRUE, pch = Spatialdata$Group2)
+
+#homogeneity of variances-covariance matrices - which library did we use?
+library(biotools)
+y <- lm(cbind(Benign_Sum, Malicious_Sum)~Group, data=Spatialdata)
+boxM(y)
+
+#####################
+##Main Analysis - MANOVA
+######################
+
+all.man <- manova(cbind(Malicious_Sum, Benign_Sum) ~ Group, data = Spatialdata)
+summary(all.man)
+etasq(all.man, test="Pillai", type = "II", partial = TRUE)
+
+malicious.aov <- aov(Malicious_Sum ~ Group, data=Spatialdata)
+summary(malicious.aov)
+etasq(malicious.aov, partial = TRUE)
+TukeyHSD(malicious.aov)
+
+benign.aov <- aov(Benign_Sum ~ Group, data=Spatialdata)
+summary(benign.aov)
+etasq(benign.aov, partial = TRUE)
+TukeyHSD(benign.aov)
+
+
+#Plots
+library(lattice)
+library(latticeExtra)
+
+# A simple grouped scatterplot:
+xyplot(BrakesScore ~ Benign_Sum, group = Group, data = Spatialdata, 
+    # Define axes:
+    xlab = "Malicious Envy", ylab = "Learning Outcome", 
+    # Define legend parameters:
+    auto.key = list(x = .1, y = .8, corner = c(0, 0)), 
+    scales = "free", par.settings=list(superpose.symbol=list(pch=1:3)))
+
+xyplot(BrakesScore ~ Malicious_Sum, group = Group, data = Spatialdata,
+    # Define axes:
+    xlab = "Malicious Envy", ylab = "Learning Outcome", 
+    # Define legend parameters:
+    auto.key = list(x = .1, y = .8, corner = c(0, 0)), scales = "free",
+    par.settings = list(superpose.symbol = list(pch=c(1,3,2), col = c("#2EB6C1","#707B7C","red")), superpose.line = list(lwd=2, lty=c(1,3,2), col= c("#2EB6C1","#707B7C","red"))),
+    # Superimpose data ellipse on the scatterplot:
+    panel = function(x, y, ...) {
+        panel.xyplot(x, y, ...)
+        panel.ellipse(x, y, ...)
+        panel.superpose(x, y, ...,
+                        panel.groups = function(x,y, col, col.symbol, ...) {
+                          panel.xyplot(x, y, col=col.symbol, ...)
+                          panel.abline(lm(y~x), col.line=col.symbol)
+                          }
+                        )
+    }
+)
+
+xyplot(BrakesScore ~ Benign_Sum, group = Group, data = Spatialdata,
+    # Define axes:
+    xlab = "Benign Envy", ylab = "Learning Outcome", 
+    # Define legend parameters:
+    auto.key = list(x = .1, y = .8, corner = c(0, 0)), scales = "free",
+    par.settings = list(superpose.symbol = list(pch=c(1,3,2), col = c("#2EB6C1","#707B7C","red")), superpose.line = list(lwd=2, lty=c(1,3,2), col= c("#2EB6C1","#707B7C","red"))),
+    # Superimpose data ellipse on the scatterplot:
+    panel = function(x, y, ...) {
+        panel.xyplot(x, y, ...)
+        panel.ellipse(x, y, ...)
+        panel.superpose(x, y, ...,
+                        panel.groups = function(x,y, col, col.symbol, ...) {
+                          panel.xyplot(x, y, col=col.symbol, ...)
+                          panel.abline(lm(y~x), col.line=col.symbol)
+                          }
+                        )
+    }
+)
+
+
+
+#Multiple Regression
+brakes.lm <- lm(BrakesScore ~ Benign_Sum + Malicious_Sum, data=Spatialdata)
+summary(brakes.lm)
+plot(brakes.lm)
+vif(brakes.lm)
+lm.beta(brakes.lm)
+confint(brakes.lm) 
+
+brakes_b.lm <- lm(BrakesScore ~ Benign_Sum + relevel(Group, ref = "CompNo"), data=Spatialdata)
+summary(brakes_b.lm)
+plot(brakes_b.lm)
+vif(brakes_b.lm)
+confint(brakes_b.lm) 
+
+brakes_m.lm <- lm(BrakesScore ~ Malicious_Sum + relevel(Group, ref = "CompNo"), data=Spatialdata)
+summary(brakes_m.lm)
+plot(brakes_m.lm)
+vif(brakes_m.lm)
+confint(brakes_m.lm) 
+
+slr <- lm(BrakesScore ~ Malicious_Sum, data=Spatialdata)
+summary(slr)
+plot(slr)
+vif(slr)
+
+library(plyr)
+models <- dlply(Spatialdata, "Group", function(df) 
+lm(BrakesScore ~ Benign_Sum, data = df))
+ldply(models, coef)
+l_ply(models, summary, .print = TRUE)
+
+models <- dlply(Spatialdata, "Group", function(df) 
+lm(BrakesScore ~ Malicious_Sum, data = df))
+ldply(models, coef)
+l_ply(models, summary, .print = TRUE)
+
+
+
+```
